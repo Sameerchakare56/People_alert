@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAMSEC AI - Side Detection Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logo-container {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .camera-logo {
+            position: relative;
+            width: 50px;
+            height: 50px;
+        }
+
+        .camera-lens {
+            width: 30px;
+            height: 30px;
+            border: 4px solid white;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .camera-lens::after {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .camera-arc {
+            width: 50px;
+            height: 25px;
+            border: 4px solid white;
+            border-bottom: none;
+            border-radius: 50px 50px 0 0;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-name {
+            font-size: 2.5em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 2px;
+        }
+
+        .brand-tagline {
+            color: #666;
+            font-size: 1.1em;
+            font-weight: 500;
+            margin-top: 5px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 20px;
+            background: rgba(30, 60, 114, 0.1);
+            border-radius: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-connected {
+            background: #10b981;
+        }
+
+        .status-disconnected {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.1); }
+        }
+
+        .video-section {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .video-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .video-title {
+            color: #1e3c72;
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #liveVideo {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            display: block;
+            object-fit: contain;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .live-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .control-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .section-header {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #1e3c72;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f0ff 100%);
+            border-radius: 10px;
+            min-width: 120px;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        .angle-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            color: #1e3c72;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .slider {
+            flex: 1;
+            height: 10px;
+            border-radius: 5px;
+            background: #d3d3d3;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .slider-value {
+            min-width: 70px;
+            text-align: center;
+            font-weight: bold;
+            color: #1e3c72;
+            background: white;
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        /* Side Detection Toggle Styles */
+        .side-detection-section {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 2px solid #4caf50;
+        }
+
+        .side-toggle-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .side-button {
+            padding: 15px 30px;
+            font-size: 1.1em;
+            font-weight: bold;
+            border: 3px solid #2a5298;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+            color: #1e3c72;
+            min-width: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .side-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .side-button.active {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            box-shadow: 0 5px 20px rgba(30, 60, 114, 0.4);
+        }
+
+        .side-icon {
+            font-size: 1.4em;
+        }
+
+        .detection-indicator {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-left: 10px;
+        }
+
+        .detection-both {
+            background: #4caf50;
+            color: white;
+        }
+
+        .detection-left {
+            background: #ff9800;
+            color: white;
+        }
+
+        .detection-right {
+            background: #2196f3;
+            color: white;
+        }
+
+        .angle-visual {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+        }
+
+        .angle-circle {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            border: 3px solid #1e3c72;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .angle-line {
+            position: absolute;
+            width: 100px;
+            height: 3px;
+            background: #10b981;
+            transform-origin: left center;
+            left: 50%;
+            transition: transform 0.3s ease;
+        }
+
+        .angle-center {
+            width: 12px;
+            height: 12px;
+            background: #1e3c72;
+            border-radius: 50%;
+            position: absolute;
+        }
+
+        .quick-angles {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .quick-angle-btn {
+            padding: 8px 16px;
+            background: #e8f0ff;
+            border: 2px solid #2a5298;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #1e3c72;
+            transition: all 0.2s ease;
+        }
+
+        .quick-angle-btn:hover {
+            background: #2a5298;
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(30, 60, 114, 0.3);
+        }
+
+        .btn-clear {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: #dc2626;
+            transform: scale(1.05);
+        }
+
+        .btn-apply {
+            background: #10b981;
+            color: white;
+            font-size: 1.1em;
+            padding: 14px 40px;
+        }
+
+        .btn-apply:hover {
+            background: #059669;
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .section-title {
+            color: white;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .alerts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .alert-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .alert-image {
+            width: 100%;
+            height: 250px;
+            object-fit: contain;
+            background: #f0f0f0;
+            padding: 10px;
+        }
+
+        .alert-info {
+            padding: 15px;
+        }
+
+        .person-id {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #1e3c72;
+            margin-bottom: 8px;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .direction-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .direction-left {
+            background: #ff9800;
+            color: white;
+        }
+
+        .direction-right {
+            background: #2196f3;
+            color: white;
+        }
+
+        .badge-new {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 10px;
+            animation: pulse 1s infinite;
+        }
+
+        .no-alerts {
+            text-align: center;
+            color: white;
+            font-size: 1.5em;
+            padding: 50px;
+            grid-column: 1 / -1;
+        }
+
+        .custom-alert-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .custom-alert-box {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            min-width: 400px;
+            max-width: 90%;
+            text-align: center;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -60%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .custom-alert-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .custom-alert-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #ef4444;
+            margin-bottom: 10px;
+        }
+
+        .custom-alert-message {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 1.1em;
+        }
+
+        .alert-preview-img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+
+        .custom-alert-btn {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .custom-alert-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .performance-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 8px;
+            font-size: 0.9em;
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+
+            .brand-name {
+                font-size: 2em;
+            }
+
+            .control-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .angle-controls {
+                grid-template-columns: 1fr;
+            }
+
+            .stats {
+                justify-content: center;
+            }
+
+            .angle-circle {
+                width: 150px;
+                height: 150px;
+            }
+
+            .angle-line {
+                width: 75px;
+            }
+
+            .side-button {
+                min-width: 120px;
+                padding: 12px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-section">
+                <div class="logo-container">
+                    <div class="camera-logo">
+                        <div class="camera-arc"></div>
+                        <div class="camera-lens"></div>
+                    </div>
+                </div>
+                <div class="brand-text">
+                    <div class="brand-name">CAMSEC AI</div>
+                    <div class="brand-tagline">Smart Side Detection System</div>
+                </div>
+            </div>
+            <div class="system-status">
+                <span class="status-dot status-connected" id="statusDot"></span>
+                <span id="statusText">System Active</span>
+            </div>
+        </div>
+
+        <!-- Video Section -->
+        <div class="video-section">
+            <div class="video-header">
+                <div class="video-title">
+                    📹 Live Stream
+                    <span class="detection-indicator" id="detectionBadge">Detection: BOTH</span>
+                </div>
+                <div class="performance-indicator">
+                    ⚡ High Quality Mode
+                </div>
+            </div>
+            <div class="video-container">
+                <img id="liveVideo" src="http://localhost:8000/video_feed" alt="Live Stream">
+                <div class="video-overlay">
+                    <div class="live-indicator"></div>
+                    <span>LIVE</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enhanced Controls Section -->
+        <div class="controls">
+            <!-- Side Detection Control -->
+            <div class="control-section side-detection-section">
+                <div class="section-header">
+                    🎯 Detection Side Control
+                    <small style="font-weight: normal; color: #666; margin-left: 10px;">
+                        Choose which side of the boundary line triggers alerts
+                    </small>
+                </div>
+
+                <div class="side-toggle-container">
+                    <button class="side-button" id="leftBtn" onclick="setDetectionSide('left')">
+                        <span class="side-icon">←</span>
+                        <span>LEFT SIDE</span>
+                    </button>
+                    <button class="side-button active" id="bothBtn" onclick="setDetectionSide('both')">
+                        <span class="side-icon">↔</span>
+                        <span>BOTH SIDES</span>
+                    </button>
+                    <button class="side-button" id="rightBtn" onclick="setDetectionSide('right')">
+                        <span class="side-icon">→</span>
+                        <span>RIGHT SIDE</span>
+                    </button>
+                </div>
+
+                <div style="margin-top: 15px; text-align: center; color: #666; font-size: 0.95em;">
+                    <strong>Current Mode:</strong> <span id="currentSideText" style="font-weight: bold; color: #1e3c72;">BOTH SIDES</span>
+                    <br>
+                    <small>Left = Person crosses from left to right | Right = Person crosses from right to left</small>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="control-section">
+                <div class="section-header">📊 Statistics</div>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalAlerts">0</div>
+                        <div class="stat-label">Total Alerts</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="lastAlert">--</div>
+                        <div class="stat-label">Last Detection</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="trackedCount">0</div>
+                        <div class="stat-label">Currently Tracked</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="currentAngle">0°</div>
+                        <div class="stat-label">Line Angle</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Angled Boundary Controls -->
+            <div class="control-section">
+                <div class="section-header">📐 Boundary Line Control</div>
+
+                <!-- Visual Angle Indicator -->
+                <div class="angle-visual">
+                    <div class="angle-circle">
+                        <div class="angle-center"></div>
+                        <div class="angle-line" id="visualAngleLine"></div>
+                        <div style="position: absolute; top: -30px; font-weight: bold; color: #1e3c72;" id="angleDisplay">0°</div>
+                    </div>
+                </div>
+
+                <div class="angle-controls">
+                    <!-- Angle Rotation Control -->
+                    <div class="control-group">
+                        <label>🔄 Line Rotation Angle (0° - 360°)</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="360" value="0" class="slider" id="angleSlider">
+                            <span class="slider-value" id="angleValue">0°</span>
+                        </div>
+                        <div class="quick-angles">
+                            <button class="quick-angle-btn" onclick="setQuickAngle(0)">0° (→)</button>
+                            <button class="quick-angle-btn" onclick="setQuickAngle(45)">45° (↗)</button>
+                            <button class="quick-angle-btn" onclick="setQuickAngle(90)">90° (↑)</button>
+                            <button class="quick-angle-btn" onclick="setQuickAngle(135)">135° (↖)</button>
+                            <button class="quick-angle-btn" onclick="setQuickAngle(180)">180° (←)</button>
+                        </div>
+                    </div>
+
+                    <!-- Position Control -->
+                    <div class="control-group">
+                        <label>📍 Line Position (0% - 100%)</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="100" value="50" class="slider" id="positionSlider">
+                            <span class="slider-value" id="positionValue">50%</span>
+                        </div>
+                        <small style="color: #666; margin-top: 5px;">
+                            Position moves the line perpendicular to its angle
+                        </small>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; display: flex; gap: 15px; justify-content: center;">
+                    <button class="btn btn-apply" onclick="applyBoundary()">
+                        ✓ Apply All Settings
+                    </button>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="control-row">
+                <button class="btn btn-primary" onclick="resetTracking()">🔄 Reset Tracking</button>
+                <button class="btn btn-clear" onclick="clearAlerts()">🗑️ Clear All Alerts</button>
+            </div>
+        </div>
+
+        <!-- Alerts Section -->
+        <h2 class="section-title">🚨 Recent Boundary Crossings</h2>
+        <div class="alerts-grid" id="alertsGrid">
+            <div class="no-alerts">Waiting for boundary crossings...</div>
+        </div>
+    </div>
+
+    <!-- Custom Alert Popup -->
+    <div class="custom-alert-overlay" id="customAlertOverlay">
+        <div class="custom-alert-box">
+            <div class="custom-alert-icon">⚠️</div>
+            <div class="custom-alert-title">Person Detected!</div>
+            <div class="custom-alert-message" id="alertMessage">
+                A person has crossed the boundary
+            </div>
+            <img id="alertPreviewImg" class="alert-preview-img" style="display:none;">
+            <button class="custom-alert-btn" onclick="closeCustomAlert()">OK</button>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'http://localhost:8000';
+        let alerts = [];
+        const MAX_ALERTS = 50;
+        let audioContext = null;
+        let lastAlertId = null;
+        let currentDetectionSide = 'both';
+
+        // Slider interactions
+        const angleSlider = document.getElementById('angleSlider');
+        const angleValue = document.getElementById('angleValue');
+        const angleDisplay = document.getElementById('angleDisplay');
+        const visualAngleLine = document.getElementById('visualAngleLine');
+        const positionSlider = document.getElementById('positionSlider');
+        const positionValue = document.getElementById('positionValue');
+
+        angleSlider.oninput = function() {
+            const angle = this.value;
+            angleValue.textContent = angle + '°';
+            angleDisplay.textContent = angle + '°';
+            visualAngleLine.style.transform = `rotate(${angle}deg)`;
+        }
+
+        positionSlider.oninput = function() {
+            positionValue.textContent = this.value + '%';
+        }
+
+        function setQuickAngle(angle) {
+            angleSlider.value = angle;
+            angleValue.textContent = angle + '°';
+            angleDisplay.textContent = angle + '°';
+            visualAngleLine.style.transform = `rotate(${angle}deg)`;
+        }
+
+        function setDetectionSide(side) {
+            currentDetectionSide = side;
+
+            // Update button states
+            document.getElementById('leftBtn').classList.remove('active');
+            document.getElementById('bothBtn').classList.remove('active');
+            document.getElementById('rightBtn').classList.remove('active');
+
+            if (side === 'left') {
+                document.getElementById('leftBtn').classList.add('active');
+            } else if (side === 'right') {
+                document.getElementById('rightBtn').classList.add('active');
+            } else {
+                document.getElementById('bothBtn').classList.add('active');
+            }
+
+            // Update text indicators
+            const sideText = side.toUpperCase() + (side === 'both' ? ' SIDES' : ' SIDE');
+            document.getElementById('currentSideText').textContent = sideText;
+
+            // Update badge
+            const badge = document.getElementById('detectionBadge');
+            badge.textContent = 'Detection: ' + sideText;
+            badge.className = 'detection-indicator detection-' + side;
+
+            console.log('Detection side set to:', side);
+        }
+
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playBeep() {
+            try {
+                const audio = new Audio('data:audio/wav;base64,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');
+                audio.volume = 0.8;
+                audio.play().catch(err => console.log('Audio play failed:', err));
+            } catch (error) {
+                console.log('Audio not available:', error);
+            }
+        }
+
+        function showCustomAlert(personId, timestamp, imageBase64, direction) {
+            const overlay = document.getElementById('customAlertOverlay');
+            const message = document.getElementById('alertMessage');
+            const previewImg = document.getElementById('alertPreviewImg');
+
+            const time = new Date(timestamp).toLocaleTimeString();
+            const directionText = direction === 'left_to_right' ? 'Left to Right →' : 'Right to Left ←';
+            message.textContent = `Person ID ${personId} crossed boundary ${directionText} at ${time}`;
+
+            if (imageBase64) {
+                previewImg.src = `data:image/jpeg;base64,${imageBase64}`;
+                previewImg.style.display = 'block';
+            } else {
+                previewImg.style.display = 'none';
+            }
+
+            overlay.style.display = 'block';
+        }
+
+        function closeCustomAlert() {
+            document.getElementById('customAlertOverlay').style.display = 'none';
+        }
+
+        document.getElementById('customAlertOverlay').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeCustomAlert();
+            }
+        });
+
+        function addAlert(alertData) {
+            alertData.receivedAt = Date.now();
+            alerts.unshift(alertData);
+
+            if (alerts.length > MAX_ALERTS) {
+                alerts = alerts.slice(0, MAX_ALERTS);
+            }
+
+            playBeep();
+            showCustomAlert(alertData.person_id, alertData.timestamp, alertData.image, alertData.crossing_direction);
+            renderAlerts();
+        }
+
+        function renderAlerts() {
+            const grid = document.getElementById('alertsGrid');
+            const now = Date.now();
+
+            document.getElementById('totalAlerts').textContent = alerts.length;
+
+            if (alerts.length === 0) {
+                document.getElementById('lastAlert').textContent = '--';
+                grid.innerHTML = '<div class="no-alerts">No boundary crossings detected yet...</div>';
+                return;
+            }
+
+            const lastTime = new Date(alerts[0].timestamp);
+            document.getElementById('lastAlert').textContent = lastTime.toLocaleTimeString();
+
+            grid.innerHTML = alerts.map(alert => {
+                const date = new Date(alert.timestamp);
+                const formattedTime = date.toLocaleString();
+                const isNew = (now - alert.receivedAt) < 5000;
+
+                const direction = alert.crossing_direction || 'unknown';
+                const directionClass = direction === 'left_to_right' ? 'direction-left' : 'direction-right';
+                const directionText = direction === 'left_to_right' ? 'Left → Right' : 'Right → Left';
+                const directionIcon = direction === 'left_to_right' ? '→' : '←';
+
+                return `
+                    <div class="alert-card">
+                        <img class="alert-image"
+                             src="data:image/jpeg;base64,${alert.image}"
+                             alt="Person ${alert.person_id}">
+                        <div class="alert-info">
+                            <div class="person-id">
+                                Person ID: ${alert.person_id}
+                                ${isNew ? '<span class="badge-new">NEW</span>' : ''}
+                            </div>
+                            <div class="timestamp">⏰ ${formattedTime}</div>
+                            <div class="direction-badge ${directionClass}">
+                                ${directionIcon} ${directionText}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function clearAlerts() {
+            if (confirm('Clear all alerts?')) {
+                alerts = [];
+                renderAlerts();
+            }
+        }
+
+        async function applyBoundary() {
+            const angle = angleSlider.value;
+            const ratio = positionSlider.value / 100;
+            const side = currentDetectionSide;
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/config/boundary?angle=${angle}&ratio=${ratio}&side=${side}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                document.getElementById('currentAngle').textContent = angle + '°';
+
+                alert(`✅ Configuration Updated!\nAngle: ${angle}°\nPosition: ${(ratio * 100).toFixed(0)}%\nDetection Side: ${side.toUpperCase()}`);
+            } catch (error) {
+                alert('❌ Error updating configuration: ' + error.message);
+            }
+        }
+
+        async function pollForAlerts() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/latest_crossing`);
+                const data = await response.json();
+
+                if (data.person_id && data.timestamp) {
+                    const alertKey = `${data.person_id}-${data.timestamp}`;
+
+                    if (alertKey !== lastAlertId) {
+                        lastAlertId = alertKey;
+                        addAlert(data);
+                    }
+                }
+                updateConnectionStatus(true);
+            } catch (error) {
+                console.error('Error polling for alerts:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/stats`);
+                const data = await response.json();
+
+                document.getElementById('trackedCount').textContent = data.total_tracked || 0;
+
+                // Update detection side from backend if available
+                if (data.detection_side) {
+                    const backendSide = data.detection_side.toLowerCase();
+                    if (backendSide !== currentDetectionSide) {
+                        setDetectionSide(backendSide);
+                    }
+                }
+
+                updateConnectionStatus(true);
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            if (connected) {
+                statusDot.className = 'status-dot status-connected';
+                statusText.textContent = 'System Active';
+            } else {
+                statusDot.className = 'status-dot status-disconnected';
+                statusText.textContent = 'System Disconnected';
+            }
+        }
+
+        async function resetTracking() {
+            if (confirm('Reset all tracking data?')) {
+                try {
+                    const response = await fetch(`${BACKEND_URL}/reset`, {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    alert('✅ ' + data.message);
+                    alerts = [];
+                    renderAlerts();
+                } catch (error) {
+                    alert('❌ Error resetting: ' + error.message);
+                }
+            }
+        }
+
+        document.getElementById('liveVideo').onerror = function() {
+            console.error('Video stream error');
+            updateConnectionStatus(false);
+        };
+
+        document.getElementById('liveVideo').onload = function() {
+            updateConnectionStatus(true);
+        };
+
+        document.addEventListener('click', initAudio, { once: true });
+
+        renderAlerts();
+        setInterval(pollForAlerts, 2000);
+        setInterval(updateStats, 3000);
+        pollForAlerts();
+        updateStats();
+
+        console.log('✅ CAMSEC AI Frontend Active - Side Detection Version');
+        console.log('📡 Backend: ' + BACKEND_URL);
+        console.log('🎯 Side Detection: Enabled');
+    </script>
+</body>
+</html>
