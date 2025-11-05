@@ -1,4 +1,4 @@
-# 🧠 Boundary detection System (FastAPI + YOLOv8)
+# 🧠 Boundary Tracking System (FastAPI + YOLOv8)
 
 An **AI-powered real-time Boundary tracking system** built with **FastAPI**, **YOLOv8**, and **OpenCV**.  
 It detects and tracks people crossing **left/right boundaries** in a live video stream and triggers **real-time alerts**.
