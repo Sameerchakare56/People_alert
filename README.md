@@ -25,4 +25,4 @@ It detects and tracks people crossing **left/right boundaries** in a live video 
 - **NumPy** for image data operations
 - **Torch / torchvision** for model support
 - **Requests** for API calls
-- **HTML + CSS** frontend interface
+- **HTML + CSS + JavaScript** frontend interface
