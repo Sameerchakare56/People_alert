@@ -2,7 +2,7 @@
 # Supports left/right side boundary crossing detection
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
@@ -610,10 +610,11 @@ async def shutdown_event():
 
 @app.get("/")
 async def root():
+    if os.path.exists("index.html"):
+        return FileResponse("index.html")
     return {
         "message": "Person Tracking System with Side Detection",
-        "version": "7.0",
-        "features": ["Angled Boundary (0-360°)", "Side Detection (Left/Right/Both)", "Dynamic Control"]
+        "version": "7.0"
     }
 
 
