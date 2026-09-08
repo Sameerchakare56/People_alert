@@ -6,4 +6,5 @@ ultralytics
 torch
 requests
 Pillow
+python-multipart
 

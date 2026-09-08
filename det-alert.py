@@ -1,7 +1,7 @@
 # main.py - Optimized FastAPI Person Tracking System with Side Detection
 # Supports left/right side boundary crossing detection
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
@@ -18,8 +18,16 @@ import torch
 import os
 import time
 import math
+import threading
+import shutil
 
 app = FastAPI(title="Person Tracking System")
+
+# Video Source Thread Safety and Upload Directory
+cap_lock = threading.Lock()
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 
 # CORS middleware
 app.add_middleware(
@@ -283,43 +291,52 @@ def initialize_model():
 
 
 def initialize_video_source():
-    """Initialize video source"""
-    global cap, video_source_info
+    """Initialize video source safely with cap_lock"""
+    global cap, video_source_info, frame_count
 
-    try:
-        source_type = config.VIDEO_SOURCE_TYPE.lower()
+    with cap_lock:
+        try:
+            if cap is not None:
+                cap.release()
+                cap = None
 
-        if source_type == "rtsp":
-            print(f"🎥 Connecting to RTSP stream: {config.RTSP_URL}")
-            cap = cv2.VideoCapture(config.RTSP_URL)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, config.BUFFER_SIZE)
-            video_source_info = {"type": "rtsp", "source": config.RTSP_URL}
+            source_type = config.VIDEO_SOURCE_TYPE.lower()
 
-        elif source_type == "local":
-            if not os.path.exists(config.LOCAL_VIDEO_PATH):
-                print(f"❌ Local video file not found: {config.LOCAL_VIDEO_PATH}")
+            if source_type == "rtsp":
+                print(f"🎥 Connecting to RTSP stream: {config.RTSP_URL}")
+                cap = cv2.VideoCapture(config.RTSP_URL)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, config.BUFFER_SIZE)
+                video_source_info = {"type": "rtsp", "source": config.RTSP_URL, "name": config.RTSP_URL}
+
+            elif source_type in ["local", "upload", "uploaded"]:
+                path = config.LOCAL_VIDEO_PATH
+                if not os.path.exists(path):
+                    print(f"❌ Local video file not found: {path}")
+                    return False
+                cap = cv2.VideoCapture(path)
+                filename = os.path.basename(path)
+                video_source_info = {"type": source_type, "source": path, "name": filename}
+
+            elif source_type == "webcam":
+                cap = cv2.VideoCapture(0)
+                video_source_info = {"type": "webcam", "source": "device_0", "name": "Webcam 0"}
+
+            if cap is None or not cap.isOpened():
+                print(f"⚠️ Failed to open {source_type} source")
                 return False
-            cap = cv2.VideoCapture(config.LOCAL_VIDEO_PATH)
-            video_source_info = {"type": "local", "source": config.LOCAL_VIDEO_PATH}
 
-        elif source_type == "webcam":
-            cap = cv2.VideoCapture(0)
-            video_source_info = {"type": "webcam", "source": "device_0"}
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            print(f"✅ Video source initialized ({source_type}): {width}x{height}")
 
-        if not cap.isOpened():
-            print(f"⚠️ Failed to open {source_type} source")
+            video_source_info.update({"width": width, "height": height})
+            frame_count = 0
+            return True
+
+        except Exception as e:
+            print(f"❌ Error initializing video source: {e}")
             return False
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        print(f"✅ Video source initialized: {width}x{height}")
-
-        video_source_info.update({"width": width, "height": height})
-        return True
-
-    except Exception as e:
-        print(f"❌ Error initializing video source: {e}")
-        return False
 
 
 def compress_image(image, max_width, max_height, quality):
@@ -465,14 +482,22 @@ def generate_frames():
     last_detections = []
     path_history = {}
     while True:
-        success, frame = cap.read()
+        with cap_lock:
+            if cap is None or not cap.isOpened():
+                time.sleep(0.05)
+                continue
+            success, frame = cap.read()
 
         if not success:
-            if video_source_info.get("type") == "local" and config.LOOP_VIDEO:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            if video_source_info.get("type") in ["local", "upload", "uploaded"] and config.LOOP_VIDEO:
+                with cap_lock:
+                    if cap is not None and cap.isOpened():
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                time.sleep(0.02)
                 continue
             else:
-                break
+                time.sleep(0.1)
+                continue
 
         frame_count += 1
         frame_height, frame_width = frame.shape[:2]
@@ -611,8 +636,83 @@ async def get_stats():
         "total_alerts": len(tracker.crossed_ids),
         "boundary_angle": config.BOUNDARY_ANGLE,
         "boundary_ratio": config.BOUNDARY_LINE_RATIO,
-        "detection_side": config.DETECTION_SIDE
+        "detection_side": config.DETECTION_SIDE,
+        "video_source": video_source_info
     }
+
+
+@app.post("/upload_video")
+async def upload_video(file: UploadFile = File(...)):
+    """Upload a custom video file and switch active video source"""
+    global tracker
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    allowed_exts = [".mp4", ".avi", ".mov", ".mkv", ".webm"]
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(allowed_exts)}")
+
+    safe_filename = f"video_{int(time.time())}{ext}"
+    file_path = os.path.join(UPLOAD_DIR, safe_filename)
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save video file: {str(e)}")
+
+    config.LOCAL_VIDEO_PATH = file_path
+    config.VIDEO_SOURCE_TYPE = "local"
+    tracker = PersonTracker()
+
+    success = initialize_video_source()
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to initialize stream from uploaded video file")
+
+    return {
+        "message": "Video uploaded and stream switched successfully",
+        "filename": file.filename,
+        "saved_path": file_path,
+        "video_source_info": video_source_info
+    }
+
+
+@app.post("/config/video_source")
+async def update_video_source(
+    source_type: str,
+    path_or_url: Optional[str] = None
+):
+    """Switch active video source dynamically (local, rtsp, webcam)"""
+    global tracker
+    source_lower = source_type.lower()
+    if source_lower not in ["local", "rtsp", "webcam"]:
+        raise HTTPException(status_code=400, detail="source_type must be 'local', 'rtsp', or 'webcam'")
+
+    if source_lower == "rtsp":
+        if not path_or_url:
+            raise HTTPException(status_code=400, detail="RTSP URL is required")
+        config.RTSP_URL = path_or_url
+        config.VIDEO_SOURCE_TYPE = "rtsp"
+    elif source_lower == "local":
+        if path_or_url:
+            if not os.path.exists(path_or_url):
+                raise HTTPException(status_code=404, detail=f"Local file not found: {path_or_url}")
+            config.LOCAL_VIDEO_PATH = path_or_url
+        config.VIDEO_SOURCE_TYPE = "local"
+    elif source_lower == "webcam":
+        config.VIDEO_SOURCE_TYPE = "webcam"
+
+    tracker = PersonTracker()
+    success = initialize_video_source()
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to open video source: {source_type}")
+
+    return {
+        "message": f"Video source updated to {source_lower}",
+        "video_source_info": video_source_info
+    }
+
 
 
 @app.post("/config/boundary")
