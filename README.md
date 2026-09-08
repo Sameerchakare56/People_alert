@@ -63,7 +63,7 @@ An end-to-end, high-performance **Computer Vision & AI Video Analytics** applica
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/YourUsername/People_alert.git
+git clone https://github.com/Sameerchakare56/People_alert
 cd People_alert
 ```
 
