@@ -29,9 +29,11 @@ async def lifespan(app: FastAPI):
     print(f"🎯 Detection Side: {config.DETECTION_SIDE.upper()}")
     initialize_model()
     initialize_video_source()
+    start_background_processor()
     print("✅ System ready!")
     yield
-    global cap
+    global cap, bg_thread_running
+    bg_thread_running = False
     if cap is not None:
         cap.release()
     print("👋 System shutdown")
@@ -270,6 +272,8 @@ class PersonTracker:
         return self.tracked_persons
 
 
+import gc
+
 # Global objects
 model = None
 tracker = PersonTracker()
@@ -278,11 +282,24 @@ latest_crossing = None
 video_source_info = {}
 frame_count = 0
 
+# Shared video streaming state for low-memory broadcast
+latest_frame_bytes = None
+frame_condition = threading.Condition()
+bg_thread_running = False
+
 
 def initialize_model():
-    """Initialize YOLO model with optimization"""
+    """Initialize YOLO model with memory optimization"""
     global model
     try:
+        # Cap PyTorch CPU threads to prevent memory inflation on 512MB RAM cloud instances
+        torch.set_num_threads(1)
+        if hasattr(torch, 'set_num_interop_threads'):
+            try:
+                torch.set_num_interop_threads(1)
+            except Exception:
+                pass
+
         original_load = torch.load
 
         def patched_load(f, *args, **kwargs):
@@ -490,13 +507,23 @@ def draw_person_path(frame, person_id, centroid, path_history, color, max_length
 
     return path_history
 
-def generate_frames():
-    """Frame generation with side detection visualization"""
-    global cap, model, tracker, frame_count
+def start_background_processor():
+    """Start the single background processing thread if not already running"""
+    global bg_thread_running
+    if not bg_thread_running:
+        bg_thread_running = True
+        thread = threading.Thread(target=background_video_loop, daemon=True)
+        thread.start()
+
+
+def background_video_loop():
+    """Single background processing loop: decodes, downscales, runs YOLO once, and broadcasts encoded JPEGs"""
+    global cap, model, tracker, frame_count, latest_frame_bytes, bg_thread_running
 
     last_detections = []
     path_history = {}
-    while True:
+
+    while bg_thread_running:
         with cap_lock:
             if cap is None or not cap.isOpened():
                 time.sleep(0.05)
@@ -515,12 +542,12 @@ def generate_frames():
                 continue
 
         frame_count += 1
-        
-        # Immediate frame downscaling to fit in 512MB RAM cloud environments
+
+        # Immediate frame downscaling to 640 max width to save RAM on 512MB cloud instances
         h, w = frame.shape[:2]
-        if w > 800:
-            scale_ratio = 800.0 / w
-            frame = cv2.resize(frame, (800, int(h * scale_ratio)), interpolation=cv2.INTER_AREA)
+        if w > 640:
+            scale_ratio = 640.0 / w
+            frame = cv2.resize(frame, (640, int(h * scale_ratio)), interpolation=cv2.INTER_AREA)
 
         frame_height, frame_width = frame.shape[:2]
 
@@ -583,8 +610,8 @@ def generate_frames():
         for person_id, person_data in tracked_persons.items():
             bbox = person_data["bbox"]
             x1, y1, x2, y2 = bbox
-            
-            centroid = person_data.get("centroid", (int((x1 + x2) / 2), int((y1 + y2) / 2))) 
+
+            centroid = person_data.get("centroid", (int((x1 + x2) / 2), int((y1 + y2) / 2)))
 
             check_boundary_crossing(person_id, person_data, frame, line_point1, line_point2)
 
@@ -599,7 +626,8 @@ def generate_frames():
 
             cv2.putText(frame, label, (int(x1), int(y1) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=30)  
+            path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=30)
+
         # Info overlay
         info_text = f"Tracked: {len(tracked_persons)} | Alerts: {len(tracker.crossed_ids)}"
         cv2.putText(frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
@@ -609,8 +637,35 @@ def generate_frames():
         ret, buffer = cv2.imencode('.jpg', frame, encode_param)
         frame_bytes = buffer.tobytes()
 
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        # Update latest frame bytes and notify all client streams
+        with frame_condition:
+            latest_frame_bytes = frame_bytes
+            frame_condition.notify_all()
+
+        # Periodic explicit garbage collection every 100 frames to prevent RAM accumulation
+        if frame_count % 100 == 0:
+            gc.collect()
+
+        # Sleep briefly to cap processing at ~25 FPS and conserve CPU/RAM
+        time.sleep(0.04)
+
+
+def generate_frames():
+    """Client stream generator: yields pre-encoded JPEG frames from background thread"""
+    global latest_frame_bytes
+    last_yielded_frame = None
+
+    while True:
+        with frame_condition:
+            frame_condition.wait(timeout=0.5)
+            current_frame = latest_frame_bytes
+
+        if current_frame is not None and current_frame is not last_yielded_frame:
+            last_yielded_frame = current_frame
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + current_frame + b'\r\n')
+        else:
+            time.sleep(0.05)
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
