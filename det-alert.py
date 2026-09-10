@@ -1,5 +1,5 @@
-# main.py - Optimized FastAPI Person Tracking System with Side Detection
-# Supports left/right side boundary crossing detection
+import os
+os.environ.setdefault("YOLO_CONFIG_DIR", "/tmp/Ultralytics")
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, File, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
