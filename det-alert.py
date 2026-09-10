@@ -20,8 +20,23 @@ import time
 import math
 import threading
 import shutil
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Person Tracking System")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 Starting Person Tracking System with Side Detection...")
+    print(f"⚡ GPU Acceleration: {'Enabled' if config.USE_GPU else 'Disabled'}")
+    print(f"🎯 Detection Side: {config.DETECTION_SIDE.upper()}")
+    initialize_model()
+    initialize_video_source()
+    print("✅ System ready!")
+    yield
+    global cap
+    if cap is not None:
+        cap.release()
+    print("👋 System shutdown")
+
+app = FastAPI(title="Person Tracking System", lifespan=lifespan)
 
 # Video Source Thread Safety and Upload Directory
 cap_lock = threading.Lock()
@@ -598,24 +613,6 @@ def generate_frames():
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 Starting Person Tracking System with Side Detection...")
-    print(f"⚡ GPU Acceleration: {'Enabled' if config.USE_GPU else 'Disabled'}")
-    print(f"🎯 Detection Side: {config.DETECTION_SIDE.upper()}")
-    initialize_model()
-    initialize_video_source()
-    print(f"✅ System ready!")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global cap
-    if cap is not None:
-        cap.release()
-    print("👋 System shutdown")
-
-
 @app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     if os.path.exists("index.html"):
@@ -671,13 +668,19 @@ async def upload_video(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save video file: {str(e)}")
 
+    prev_source_type = config.VIDEO_SOURCE_TYPE
+    prev_local_path = config.LOCAL_VIDEO_PATH
+
     config.LOCAL_VIDEO_PATH = file_path
     config.VIDEO_SOURCE_TYPE = "local"
     tracker = PersonTracker()
 
     success = initialize_video_source()
     if not success:
-        raise HTTPException(status_code=500, detail="Failed to initialize stream from uploaded video file")
+        config.VIDEO_SOURCE_TYPE = prev_source_type
+        config.LOCAL_VIDEO_PATH = prev_local_path
+        initialize_video_source()
+        raise HTTPException(status_code=400, detail="Failed to initialize stream from uploaded video file")
 
     return {
         "message": "Video uploaded and stream switched successfully",
@@ -698,6 +701,10 @@ async def update_video_source(
     if source_lower not in ["local", "rtsp", "webcam"]:
         raise HTTPException(status_code=400, detail="source_type must be 'local', 'rtsp', or 'webcam'")
 
+    prev_source_type = config.VIDEO_SOURCE_TYPE
+    prev_rtsp_url = config.RTSP_URL
+    prev_local_path = config.LOCAL_VIDEO_PATH
+
     if source_lower == "rtsp":
         if not path_or_url:
             raise HTTPException(status_code=400, detail="RTSP URL is required")
@@ -715,7 +722,21 @@ async def update_video_source(
     tracker = PersonTracker()
     success = initialize_video_source()
     if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to open video source: {source_type}")
+        # Roll back to previous configuration and restore capture
+        config.VIDEO_SOURCE_TYPE = prev_source_type
+        config.RTSP_URL = prev_rtsp_url
+        config.LOCAL_VIDEO_PATH = prev_local_path
+        initialize_video_source()
+
+        detail_msg = f"Failed to open video source '{source_type}'."
+        if source_lower == "webcam":
+            detail_msg += " No physical camera/webcam device was detected on the server."
+        elif source_lower == "rtsp":
+            detail_msg += f" Could not connect to RTSP stream: {path_or_url}"
+        else:
+            detail_msg += f" Could not open video file: {path_or_url}"
+
+        raise HTTPException(status_code=400, detail=detail_msg)
 
     return {
         "message": f"Video source updated to {source_lower}",
