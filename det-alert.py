@@ -500,16 +500,24 @@ def generate_frames():
                 continue
 
         frame_count += 1
+        
+        # Immediate frame downscaling to fit in 512MB RAM cloud environments
+        h, w = frame.shape[:2]
+        if w > 800:
+            scale_ratio = 800.0 / w
+            frame = cv2.resize(frame, (800, int(h * scale_ratio)), interpolation=cv2.INTER_AREA)
+
         frame_height, frame_width = frame.shape[:2]
 
-        # Resize frame for processing
+        # Resize frame for detection processing
         process_frame = cv2.resize(frame, (config.PROCESS_WIDTH, config.PROCESS_HEIGHT))
         scale_x = frame_width / config.PROCESS_WIDTH
         scale_y = frame_height / config.PROCESS_HEIGHT
 
-        # Run detection
+        # Run detection under torch.no_grad to prevent memory growth
         if frame_count % config.DETECTION_FRAME_SKIP == 0:
-            results = model(process_frame, conf=config.CONFIDENCE_THRESHOLD, iou=config.IOU_THRESHOLD, verbose=False)
+            with torch.no_grad():
+                results = model(process_frame, conf=config.CONFIDENCE_THRESHOLD, iou=config.IOU_THRESHOLD, verbose=False)
 
             detections = []
             for result in results:
@@ -576,7 +584,7 @@ def generate_frames():
 
             cv2.putText(frame, label, (int(x1), int(y1) - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=500)  
+            path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=30)  
         # Info overlay
         info_text = f"Tracked: {len(tracked_persons)} | Alerts: {len(tracker.crossed_ids)}"
         cv2.putText(frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
