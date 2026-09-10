@@ -1,13 +1,11 @@
 # Use lightweight Python 3.10 image
 FROM python:3.10-slim
 
-# Install system dependencies required for OpenCV
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+# Install system dependencies required for OpenCV / FFmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
     libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
