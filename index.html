@@ -978,7 +978,7 @@
                 </div>
             </div>
             <div class="video-container">
-                <img id="liveVideo" src="http://localhost:8000/video_feed" alt="Live Stream">
+                <img id="liveVideo" src="/video_feed" alt="Live Stream">
                 <div class="video-overlay">
                     <div class="live-indicator"></div>
                     <span>LIVE</span>
@@ -1546,6 +1546,7 @@
         document.addEventListener('click', initAudio, { once: true });
 
         renderAlerts();
+        refreshVideoStream();
         setInterval(pollForAlerts, 2000);
         setInterval(updateStats, 3000);
         pollForAlerts();
