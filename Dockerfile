@@ -18,10 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code and assets
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p uploads
+# Create uploads directory and set permissions
+RUN mkdir -p uploads && chmod 777 uploads
 
-# Expose FastAPI port
+# Expose ports for Hugging Face (7860) and standard cloud hosts (8000)
+EXPOSE 7860
 EXPOSE 8000
 
 # Command to run the application
