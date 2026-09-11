@@ -70,18 +70,18 @@ class Config:
     # API Configuration
     API_ENDPOINT = "http://localhost:8000/receive_alert"
 
-    # BALANCED PERFORMANCE SETTINGS
-    PROCESS_WIDTH = 640
-    PROCESS_HEIGHT = 480
+    # BALANCED PERFORMANCE SETTINGS (Optimized for 512MB RAM cloud environments)
+    PROCESS_WIDTH = 480
+    PROCESS_HEIGHT = 360
 
     # Stream output settings
-    STREAM_WIDTH = 640
-    STREAM_HEIGHT = 480
+    STREAM_WIDTH = 480
+    STREAM_HEIGHT = 360
     STREAM_FPS = 15
-    JPEG_QUALITY = 85
+    JPEG_QUALITY = 75
 
-    # Skip frames for detection
-    DETECTION_FRAME_SKIP = 1
+    # Skip frames for detection (every 2nd frame)
+    DETECTION_FRAME_SKIP = 2
 
     # ANGLED BOUNDARY LINE SETTINGS
     BOUNDARY_LINE_RATIO = 0.5
@@ -289,7 +289,7 @@ bg_thread_running = False
 
 
 def initialize_model():
-    """Initialize YOLO model with memory optimization"""
+    """Initialize YOLO model with memory optimization (ONNX preferred for low RAM)"""
     global model
     try:
         # Cap PyTorch CPU threads to prevent memory inflation on 512MB RAM cloud instances
@@ -307,7 +307,16 @@ def initialize_model():
             return original_load(f, *args, **kwargs)
 
         torch.load = patched_load
-        model = YOLO(config.MODEL_PATH)
+
+        # Prefer ONNX model if available for lightweight runtime (<100MB RAM)
+        if os.path.exists("yolov8n.onnx"):
+            model_file = "yolov8n.onnx"
+            print("🚀 Loading lightweight ONNX model: yolov8n.onnx")
+        else:
+            model_file = config.MODEL_PATH
+            print(f"🚀 Loading model: {model_file}")
+
+        model = YOLO(model_file)
 
         if config.USE_GPU:
             model.to('cuda')
@@ -316,6 +325,9 @@ def initialize_model():
             print("✅ YOLO model loaded on CPU")
 
         torch.load = original_load
+
+        # Immediate garbage collection to clear transient memory
+        gc.collect()
 
     except Exception as e:
         print(f"❌ Error loading model: {e}")
@@ -524,130 +536,136 @@ def background_video_loop():
     path_history = {}
 
     while bg_thread_running:
-        with cap_lock:
-            if cap is None or not cap.isOpened():
-                time.sleep(0.05)
-                continue
-            success, frame = cap.read()
+        try:
+            with cap_lock:
+                if cap is None or not cap.isOpened():
+                    time.sleep(0.05)
+                    continue
+                success, frame = cap.read()
 
-        if not success:
-            if video_source_info.get("type") in ["local", "upload", "uploaded"] and config.LOOP_VIDEO:
-                with cap_lock:
-                    if cap is not None and cap.isOpened():
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                time.sleep(0.02)
-                continue
+            if not success or frame is None or frame.size == 0:
+                if video_source_info.get("type") in ["local", "upload", "uploaded"] and config.LOOP_VIDEO:
+                    with cap_lock:
+                        if cap is not None and cap.isOpened():
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    time.sleep(0.02)
+                    continue
+                else:
+                    time.sleep(0.1)
+                    continue
+
+            frame_count += 1
+
+            # Immediate frame downscaling to 480 max width to save RAM on 512MB cloud instances
+            h, w = frame.shape[:2]
+            if w > 480:
+                scale_ratio = 480.0 / w
+                frame = cv2.resize(frame, (480, int(h * scale_ratio)), interpolation=cv2.INTER_AREA)
+
+            frame_height, frame_width = frame.shape[:2]
+
+            # Resize frame for detection processing
+            process_frame = cv2.resize(frame, (config.PROCESS_WIDTH, config.PROCESS_HEIGHT))
+            scale_x = frame_width / config.PROCESS_WIDTH
+            scale_y = frame_height / config.PROCESS_HEIGHT
+
+            # Run detection under torch.inference_mode to prevent memory growth
+            if frame_count % config.DETECTION_FRAME_SKIP == 0:
+                with torch.inference_mode():
+                    results = model(process_frame, conf=config.CONFIDENCE_THRESHOLD, iou=config.IOU_THRESHOLD, verbose=False)
+
+                detections = []
+                for result in results:
+                    boxes = result.boxes
+                    for box in boxes:
+                        cls = int(box.cls[0])
+                        if cls == 0:  # Person class
+                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                            detections.append((
+                                x1 * scale_x, y1 * scale_y,
+                                x2 * scale_x, y2 * scale_y
+                            ))
+                last_detections = detections
             else:
-                time.sleep(0.1)
-                continue
+                detections = last_detections
 
-        frame_count += 1
+            # Update tracker
+            tracked_persons = tracker.update(detections)
 
-        # Immediate frame downscaling to 640 max width to save RAM on 512MB cloud instances
-        h, w = frame.shape[:2]
-        if w > 640:
-            scale_ratio = 640.0 / w
-            frame = cv2.resize(frame, (640, int(h * scale_ratio)), interpolation=cv2.INTER_AREA)
+            # Calculate boundary line
+            line_point1, line_point2 = calculate_angled_boundary_line(
+                frame_height, frame_width,
+                config.BOUNDARY_ANGLE,
+                config.BOUNDARY_LINE_RATIO
+            )
+            config.LINE_POINT1 = line_point1
+            config.LINE_POINT2 = line_point2
 
-        frame_height, frame_width = frame.shape[:2]
+            # Draw boundary line
+            cv2.line(frame, line_point1, line_point2, (0, 255, 0), 3)
 
-        # Resize frame for detection processing
-        process_frame = cv2.resize(frame, (config.PROCESS_WIDTH, config.PROCESS_HEIGHT))
-        scale_x = frame_width / config.PROCESS_WIDTH
-        scale_y = frame_height / config.PROCESS_HEIGHT
+            # Draw detection side indicators
+            mid_x = (line_point1[0] + line_point2[0]) // 2
+            mid_y = (line_point1[1] + line_point2[1]) // 2
 
-        # Run detection under torch.no_grad to prevent memory growth
-        if frame_count % config.DETECTION_FRAME_SKIP == 0:
-            with torch.no_grad():
-                results = model(process_frame, conf=config.CONFIDENCE_THRESHOLD, iou=config.IOU_THRESHOLD, verbose=False)
+            # Main label
+            label_text = f"Angle: {config.BOUNDARY_ANGLE}° | Pos: {int(config.BOUNDARY_LINE_RATIO * 100)}%"
+            cv2.putText(frame, label_text, (mid_x - 100, mid_y - 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-            detections = []
-            for result in results:
-                boxes = result.boxes
-                for box in boxes:
-                    cls = int(box.cls[0])
-                    if cls == 0:  # Person class
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        detections.append((
-                            x1 * scale_x, y1 * scale_y,
-                            x2 * scale_x, y2 * scale_y
-                        ))
-            last_detections = detections
-        else:
-            detections = last_detections
+            # Detection side label
+            side_text = f"Detection: {config.DETECTION_SIDE.upper()}"
+            side_color = (0, 255, 255) if config.DETECTION_SIDE == "both" else (255, 165, 0)
+            cv2.putText(frame, side_text, (mid_x - 80, mid_y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, side_color, 2)
 
-        # Update tracker
-        tracked_persons = tracker.update(detections)
+            # Draw tracked persons
+            for person_id, person_data in tracked_persons.items():
+                bbox = person_data["bbox"]
+                x1, y1, x2, y2 = bbox
 
-        # Calculate boundary line
-        line_point1, line_point2 = calculate_angled_boundary_line(
-            frame_height, frame_width,
-            config.BOUNDARY_ANGLE,
-            config.BOUNDARY_LINE_RATIO
-        )
-        config.LINE_POINT1 = line_point1
-        config.LINE_POINT2 = line_point2
+                centroid = person_data.get("centroid", (int((x1 + x2) / 2), int((y1 + y2) / 2)))
 
-        # Draw boundary line
-        cv2.line(frame, line_point1, line_point2, (0, 255, 0), 3)
+                check_boundary_crossing(person_id, person_data, frame, line_point1, line_point2)
 
-        # Draw detection side indicators
-        mid_x = (line_point1[0] + line_point2[0]) // 2
-        mid_y = (line_point1[1] + line_point2[1]) // 2
+                color = (0, 0, 255) if person_id in tracker.crossed_ids else (0, 255, 0)
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
 
-        # Main label
-        label_text = f"Angle: {config.BOUNDARY_ANGLE}° | Pos: {int(config.BOUNDARY_LINE_RATIO * 100)}%"
-        cv2.putText(frame, label_text, (mid_x - 100, mid_y - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                label = f"ID: {person_id}"
+                if person_id in tracker.crossed_ids:
+                    direction = person_data.get("crossing_direction", "")
+                    direction_symbol = "→" if direction == "left_to_right" else "←"
+                    label += f" [CROSSED {direction_symbol}]"
 
-        # Detection side label
-        side_text = f"Detection: {config.DETECTION_SIDE.upper()}"
-        side_color = (0, 255, 255) if config.DETECTION_SIDE == "both" else (255, 165, 0)
-        cv2.putText(frame, side_text, (mid_x - 80, mid_y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, side_color, 2)
+                cv2.putText(frame, label, (int(x1), int(y1) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=30)
 
-        # Draw tracked persons
-        for person_id, person_data in tracked_persons.items():
-            bbox = person_data["bbox"]
-            x1, y1, x2, y2 = bbox
+            # Info overlay
+            info_text = f"Tracked: {len(tracked_persons)} | Alerts: {len(tracker.crossed_ids)}"
+            cv2.putText(frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            centroid = person_data.get("centroid", (int((x1 + x2) / 2), int((y1 + y2) / 2)))
+            # Compress output frame
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), config.JPEG_QUALITY]
+            ret, buffer = cv2.imencode('.jpg', frame, encode_param)
+            frame_bytes = buffer.tobytes()
 
-            check_boundary_crossing(person_id, person_data, frame, line_point1, line_point2)
+            # Update latest frame bytes and notify all client streams
+            with frame_condition:
+                latest_frame_bytes = frame_bytes
+                frame_condition.notify_all()
 
-            color = (0, 0, 255) if person_id in tracker.crossed_ids else (0, 255, 0)
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+            # Periodic explicit garbage collection every 100 frames to prevent RAM accumulation
+            if frame_count % 100 == 0:
+                gc.collect()
 
-            label = f"ID: {person_id}"
-            if person_id in tracker.crossed_ids:
-                direction = person_data.get("crossing_direction", "")
-                direction_symbol = "→" if direction == "left_to_right" else "←"
-                label += f" [CROSSED {direction_symbol}]"
+            # Sleep briefly to cap processing at ~25 FPS and conserve CPU/RAM
+            time.sleep(0.04)
 
-            cv2.putText(frame, label, (int(x1), int(y1) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            path_history = draw_person_path(frame, person_id, centroid, path_history, color, max_length=30)
-
-        # Info overlay
-        info_text = f"Tracked: {len(tracked_persons)} | Alerts: {len(tracker.crossed_ids)}"
-        cv2.putText(frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        # Compress output frame
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), config.JPEG_QUALITY]
-        ret, buffer = cv2.imencode('.jpg', frame, encode_param)
-        frame_bytes = buffer.tobytes()
-
-        # Update latest frame bytes and notify all client streams
-        with frame_condition:
-            latest_frame_bytes = frame_bytes
-            frame_condition.notify_all()
-
-        # Periodic explicit garbage collection every 100 frames to prevent RAM accumulation
-        if frame_count % 100 == 0:
-            gc.collect()
-
-        # Sleep briefly to cap processing at ~25 FPS and conserve CPU/RAM
-        time.sleep(0.04)
+        except Exception as e:
+            print(f"⚠️ Error in background video processing loop: {e}")
+            time.sleep(0.1)
+            continue
 
 
 def generate_frames():
@@ -656,16 +674,20 @@ def generate_frames():
     last_yielded_frame = None
 
     while True:
-        with frame_condition:
-            frame_condition.wait(timeout=0.5)
-            current_frame = latest_frame_bytes
+        try:
+            with frame_condition:
+                frame_condition.wait(timeout=0.5)
+                current_frame = latest_frame_bytes
 
-        if current_frame is not None and current_frame is not last_yielded_frame:
-            last_yielded_frame = current_frame
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + current_frame + b'\r\n')
-        else:
+            if current_frame is not None and current_frame is not last_yielded_frame:
+                last_yielded_frame = current_frame
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + current_frame + b'\r\n')
+            else:
+                time.sleep(0.05)
+        except Exception:
             time.sleep(0.05)
+            break
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
