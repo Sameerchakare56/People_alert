@@ -712,6 +712,12 @@ async def get_latest_crossing():
     return {"message": "No crossings detected yet"}
 
 
+@app.post("/receive_alert")
+async def receive_alert(payload: dict):
+    """Internal webhook receiver for boundary alerts"""
+    return {"status": "alert_received", "person_id": payload.get("person_id")}
+
+
 @app.get("/stats")
 async def get_stats():
     return {
